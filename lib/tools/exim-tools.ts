@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { eximCall, num, type EximData, type EximRow } from "../exim";
+import { eximCall, eximRaw, flattenRows, num, type EximData, type EximRow } from "../exim";
 import { addDays, fmtNum, isWeekend, mapLimit, normalizeDate, nowKstLabel, safe, table, todayKst, UpstreamError, weekdaysBetween } from "../common";
 
 const SOURCE = "출처: 한국수출입은행 현재환율 Open API (영업일 오전 11시경 고시, 주말·공휴일 없음)";
@@ -96,19 +96,27 @@ export function registerEximTools(server: McpServer) {
 
   server.tool(
     "exim_interest_rates",
-    "수출입은행 Open API의 대출금리(AP02) 또는 국제금리(AP03) 고시값.",
+    "수출입은행 Open API의 대출금리(AP02: 수은채 유통수익률 등) 또는 국제금리(AP03: SOFR·ESTR·EURIBOR·TONA·TIBOR·SWAP·CIRR 등) 고시값. " +
+      "국제금리는 비영업일에 일부 금리만 고시될 수 있다.",
     {
       kind: z.enum(["AP02", "AP03"]).describe("AP02=대출금리, AP03=국제금리"),
       date: z.string().optional(),
+      filter: z.string().optional().describe("구분·금리명·통화로 좁히기 (예: 'SOFR', 'USD', 'CIRR')"),
+      raw: z.boolean().default(false).describe("true면 수출입은행 원본 응답(JSON 앞부분)을 그대로 보여준다 — 형식 확인용"),
     },
-    safe(async ({ kind, date }) => {
+    safe(async ({ kind, date, filter, raw }) => {
       const asked = date ? normalizeDate(date) : todayKst();
       const got = await onOrBefore(kind, asked);
-      const cols = Object.keys(got.rows[0]).filter((c) => c !== "result");
+      if (raw) return "```json\n" + (eximRaw(kind, got.date) ?? "(원본 없음 — 캐시된 결과)") + "\n```";
+      let flat = flattenRows(got.rows);
+      if (filter) flat = flat.filter((r) => Object.values(r).some((v) => v.toUpperCase().includes(filter.toUpperCase())));
+      if (!flat.length) return `${got.date} ${kind} 고시에 "${filter}"에 해당하는 금리가 없습니다.`;
+      const cols = [...new Set(flat.flatMap((r) => Object.keys(r)))];
+      const note = got.date !== asked ? `\n\n※ ${asked}은(는) 고시가 없어 직전 고시일 ${got.date} 값을 표시합니다.` : "";
       return [
-        `## 수출입은행 ${kind === "AP02" ? "대출금리" : "국제금리"} — ${got.date}`,
-        table(cols, got.rows.map((r) => cols.map((c) => r[c] as string))),
-        SOURCE,
+        `## 수출입은행 ${kind === "AP02" ? "대출금리" : "국제금리"} — ${got.date} (${flat.length}건)${note}`,
+        table(cols, flat.map((r) => cols.map((c) => r[c]))),
+        "출처: 한국수출입은행 Open API · 조회시각 " + nowKstLabel(),
       ].join("\n\n");
     })
   );
