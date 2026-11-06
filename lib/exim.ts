@@ -49,15 +49,22 @@ export async function eximCall(data: EximData, searchdate: string): Promise<Exim
   } catch {
     throw new UpstreamError(`수출입은행 환율: JSON이 아닌 응답 (HTTP ${res.status}): ${text.slice(0, 160)}`);
   }
-  if (!Array.isArray(rows)) throw new UpstreamError("수출입은행 환율: 예상하지 못한 응답 형식입니다.");
-  const bad = rows.find((r) => String(r.result) !== "1");
+  if (!Array.isArray(rows)) {
+    // Some endpoints wrap the list in an object, or answer a single status object.
+    const obj = rows as unknown as Record<string, unknown>;
+    const inner = obj && typeof obj === "object" ? Object.values(obj).find(Array.isArray) : undefined;
+    if (inner) rows = inner as EximRow[];
+    else if (obj && typeof obj === "object" && "result" in obj) rows = [obj as EximRow];
+    else throw new UpstreamError(`수출입은행 ${data}: 예상하지 못한 응답 형식 (HTTP ${res.status}): ${text.slice(0, 300)}`);
+  }
+  const bad = rows.find((r) => r.result !== undefined && String(r.result) !== "1");
   if (bad) {
     const why: Record<string, string> = {
       "2": "DATA 코드 오류",
       "3": "인증키 오류 — 수출입은행은 서비스별로 키가 다릅니다. 현재환율=KOREAEXIM_API_KEY, 대출금리=KOREAEXIM_LOAN_KEY, 국제금리=KOREAEXIM_INTL_KEY 를 확인하세요",
       "4": "일일 호출 한도(1,000회) 초과 — 내일 다시 시도하세요",
     };
-    throw new UpstreamError(`수출입은행 환율: result=${bad.result} ${why[String(bad.result)] ?? ""}`);
+    throw new UpstreamError(`수출입은행 ${data}: result=${bad.result} ${why[String(bad.result)] ?? ""}`);
   }
   cache.set(ck, { at: Date.now(), rows });
   return rows;
