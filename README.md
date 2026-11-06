@@ -6,7 +6,9 @@
 | 이름 | 발급처 |
 |---|---|
 | `ECOS_API_KEY` | ecos.bok.or.kr → Open API → 인증키 신청 |
-| `KOREAEXIM_API_KEY` | koreaexim.go.kr → 오픈API(환율) → 인증키 발급 |
+| `KOREAEXIM_API_KEY` | 수출입은행 오픈API **현재환율 API** 키 |
+| `KOREAEXIM_LOAN_KEY` | 수출입은행 **대출금리 API** 키 (선택) |
+| `KOREAEXIM_INTL_KEY` | 수출입은행 **국제금리 API** 키 (선택) |
 | `KRX_API_KEY` | openapi.krx.co.kr → 인증키 신청 + API별 이용신청 |
 
 키가 없는 기관의 도구만 오류를 내고, 나머지는 정상 동작합니다. 키를 추가·변경하면 Redeploy 해야 반영됩니다.

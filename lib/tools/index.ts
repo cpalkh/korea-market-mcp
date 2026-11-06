@@ -16,7 +16,9 @@ export function registerAllTools(server: McpServer) {
           "## korea-market-mcp 상태",
           `- 한국은행 ECOS (ECOS_API_KEY): ${has("ECOS_API_KEY")}`,
           `- 한국거래소 KRX (KRX_API_KEY): ${has("KRX_API_KEY")}`,
-          `- 수출입은행 환율 (KOREAEXIM_API_KEY): ${has("KOREAEXIM_API_KEY")}`,
+          `- 수출입은행 현재환율 (KOREAEXIM_API_KEY): ${has("KOREAEXIM_API_KEY")}`,
+          `- 수출입은행 대출금리 (KOREAEXIM_LOAN_KEY): ${has("KOREAEXIM_LOAN_KEY")}`,
+          `- 수출입은행 국제금리 (KOREAEXIM_INTL_KEY): ${has("KOREAEXIM_INTL_KEY")}`,
         ].join("\n")
       );
     }

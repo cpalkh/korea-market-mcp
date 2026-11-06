@@ -15,7 +15,11 @@ export async function eximCall(data: EximData, searchdate: string): Promise<Exim
   // A past date's notice never changes; today's may still be empty before ~11:00, so cache briefly.
   if (hit && Date.now() - hit.at < (hit.rows.length ? 6 * 3600 * 1000 : 10 * 60 * 1000)) return hit.rows;
 
-  const key = requireEnv("KOREAEXIM_API_KEY", "koreaexim.go.kr → 오픈API(환율) → 인증키 발급");
+  // The bank issues a separate key per service; fall back to the exchange-rate key.
+  const envName = { AP01: "KOREAEXIM_API_KEY", AP02: "KOREAEXIM_LOAN_KEY", AP03: "KOREAEXIM_INTL_KEY" }[data];
+  const key = process.env[envName]?.trim()
+    ? requireEnv(envName, "")
+    : requireEnv("KOREAEXIM_API_KEY", `koreaexim.go.kr 오픈API 인증키. ${data === "AP01" ? "현재환율 API" : data === "AP02" ? "대출금리 API (KOREAEXIM_LOAN_KEY)" : "국제금리 API (KOREAEXIM_INTL_KEY)"} 키`);
   let url = `${BASE()}?authkey=${encodeURIComponent(key)}&searchdate=${searchdate}&data=${data}`;
   const cookies = new Map<string, string>();
   let res: Response | null = null;
@@ -48,7 +52,7 @@ export async function eximCall(data: EximData, searchdate: string): Promise<Exim
   if (bad) {
     const why: Record<string, string> = {
       "2": "DATA 코드 오류",
-      "3": "인증키 오류 — Vercel 환경변수 KOREAEXIM_API_KEY 를 확인하세요",
+      "3": "인증키 오류 — 수출입은행은 서비스별로 키가 다릅니다. 현재환율=KOREAEXIM_API_KEY, 대출금리=KOREAEXIM_LOAN_KEY, 국제금리=KOREAEXIM_INTL_KEY 를 확인하세요",
       "4": "일일 호출 한도(1,000회) 초과 — 내일 다시 시도하세요",
     };
     throw new UpstreamError(`수출입은행 환율: result=${bad.result} ${why[String(bad.result)] ?? ""}`);
