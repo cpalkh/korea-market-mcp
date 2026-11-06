@@ -2,7 +2,9 @@
 // The server answers with cookie-setting redirects, so redirects are followed by hand with a cookie jar.
 import { fetchWithRetry, requireEnv, UpstreamError } from "./common";
 
-const BASE = () => process.env.EXIM_BASE_URL || "https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON";
+const BASE = () => process.env.EXIM_BASE_URL || "https://oapi.koreaexim.go.kr/site/program/financial";
+// Each data code has its own endpoint.
+const ENDPOINT = { AP01: "exchangeJSON", AP02: "interestJSON", AP03: "internationalJSON" } as const;
 
 export type EximRow = Record<string, string | number>;
 export type EximData = "AP01" | "AP02" | "AP03";
@@ -20,7 +22,7 @@ export async function eximCall(data: EximData, searchdate: string): Promise<Exim
   const key = process.env[envName]?.trim()
     ? requireEnv(envName, "")
     : requireEnv("KOREAEXIM_API_KEY", `koreaexim.go.kr 오픈API 인증키. ${data === "AP01" ? "현재환율 API" : data === "AP02" ? "대출금리 API (KOREAEXIM_LOAN_KEY)" : "국제금리 API (KOREAEXIM_INTL_KEY)"} 키`);
-  let url = `${BASE()}?authkey=${encodeURIComponent(key)}&searchdate=${searchdate}&data=${data}`;
+  let url = `${BASE()}/${ENDPOINT[data]}?authkey=${encodeURIComponent(key)}&searchdate=${searchdate}&data=${data}`;
   const cookies = new Map<string, string>();
   let res: Response | null = null;
   for (let hop = 0; hop < 6; hop++) {
