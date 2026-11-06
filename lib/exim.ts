@@ -10,6 +10,45 @@ export type EximRow = Record<string, string | number>;
 export type EximData = "AP01" | "AP02" | "AP03";
 
 const cache = new Map<string, { at: number; rows: EximRow[] }>();
+const rawCache = new Map<string, string>();
+
+/** Raw response text of the last call for (data, date), for diagnosing format changes. */
+export function eximRaw(data: EximData, searchdate: string): string | undefined {
+  return rawCache.get(`${data}|${searchdate}`);
+}
+
+/**
+ * Flatten rows whose fields hold nested lists (국제금리: sofr_list, euribor_list, ...)
+ * into one row per list item, labelled with the list name.
+ */
+export function flattenRows(rows: EximRow[]): Record<string, string>[] {
+  const out: Record<string, string>[] = [];
+  for (const r of rows) {
+    const scalars: Record<string, string> = {};
+    const nested: [string, unknown[]][] = [];
+    for (const [k, v] of Object.entries(r as Record<string, unknown>)) {
+      if (k === "result") continue;
+      if (Array.isArray(v)) nested.push([k, v]);
+      else if (v !== null && v !== undefined && typeof v !== "object") scalars[k] = String(v);
+    }
+    const group = scalars._group ? scalars._group.replace(/_list$/, "").toUpperCase() : "";
+    delete scalars._group;
+    if (Object.keys(scalars).length) out.push({ 구분: group, ...scalars });
+    for (const [k, arr] of nested) {
+      const label = k.replace(/_list$/, "").toUpperCase();
+      for (const item of arr) {
+        if (item && typeof item === "object") {
+          const flat: Record<string, string> = { 구분: label };
+          for (const [ik, iv] of Object.entries(item as Record<string, unknown>)) {
+            if (iv !== null && iv !== undefined && typeof iv !== "object") flat[ik] = String(iv);
+          }
+          out.push(flat);
+        } else out.push({ 구분: label, value: String(item) });
+      }
+    }
+  }
+  return out;
+}
 
 export async function eximCall(data: EximData, searchdate: string): Promise<EximRow[]> {
   const ck = `${data}|${searchdate}`;
@@ -52,11 +91,19 @@ export async function eximCall(data: EximData, searchdate: string): Promise<Exim
   if (!Array.isArray(rows)) {
     // Some endpoints wrap the list in an object, or answer a single status object.
     const obj = rows as unknown as Record<string, unknown>;
-    const inner = obj && typeof obj === "object" ? Object.values(obj).find(Array.isArray) : undefined;
-    if (inner) rows = inner as EximRow[];
-    else if (obj && typeof obj === "object" && "result" in obj) rows = [obj as EximRow];
+    if (!obj || typeof obj !== "object") {
+      throw new UpstreamError(`수출입은행 ${data}: 예상하지 못한 응답 형식 (HTTP ${res.status}): ${text.slice(0, 300)}`);
+    }
+    // Keep every top-level list (e.g. one per rate family), tagging rows with the list name.
+    const lists = Object.entries(obj).filter(([, v]) => Array.isArray(v)) as [string, unknown[]][];
+    if (lists.length) {
+      rows = lists.flatMap(([k, arr]) =>
+        arr.map((item): EximRow => (item && typeof item === "object" ? { _group: k, ...(item as EximRow) } : { _group: k, value: String(item) }))
+      );
+    } else if ("result" in obj) rows = [obj as EximRow];
     else throw new UpstreamError(`수출입은행 ${data}: 예상하지 못한 응답 형식 (HTTP ${res.status}): ${text.slice(0, 300)}`);
   }
+  rawCache.set(ck, text.slice(0, 6000));
   const bad = rows.find((r) => r.result !== undefined && String(r.result) !== "1");
   if (bad) {
     const why: Record<string, string> = {
